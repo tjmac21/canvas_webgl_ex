@@ -6,6 +6,9 @@ const glsl = require("glslify");
 const settings = {
     context: "webgl",
     animate: true,
+    dimensions: [512, 512],
+    duration: 4, // in seconds
+    fps: 24,
 };
 
 // Your glsl code

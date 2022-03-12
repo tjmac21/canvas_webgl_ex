@@ -10,6 +10,7 @@ const random = require("canvas-sketch-util/random");
 const palettes = require("nice-color-palettes");
 const eases = require("eases");
 const BezierEasing = require("bezier-easing");
+const glslify = require("glslify");
 
 const canvasSketch = require("canvas-sketch");
 
@@ -40,14 +41,49 @@ const sketch = ({ context, width, height }) => {
     const scene = new THREE.Scene();
 
     // Re-use the same Geometry across all our cubes
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const geometry = new THREE.SphereGeometry(1, 32, 32);
 
     const palette = random.pick(palettes);
 
-    for (let i = 0; i < 50; i++) {
+    const fragmentShader = glslify(`
+    varying vec2 vUv;
+
+    uniform float time;
+    uniform vec3 color;
+
+    #pragma glslify: noise = require('glsl-noise/simplex/3d');
+
+    void main () {
+        float n = 0.3 * noise(vec3(vUv.xy * 5.0, time));
+        gl_FragColor = vec4(vec3(color * vUv.x) + n, 1.0);
+    }
+    `);
+    const vertexShader = glslify(`
+    varying vec2 vUv;
+
+    uniform float time;
+
+    #pragma glslify: noise = require('glsl-noise/simplex/4d');
+
+    void main () {
+        vUv = uv;
+        vec3 pos = position.xyz;
+        pos -= normal * noise(vec4(position.xyz * 0.50, time*0.5));
+        pos += normal * noise(vec4(position.xyz * 0.50, time*1.5));
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    }
+    `);
+
+    const meshes = [];
+    for (let i = 0; i < 20; i++) {
         // Basic "unlit" material with no depth
-        const material = new THREE.MeshStandardMaterial({
-            color: random.pick(palette),
+        const material = new THREE.ShaderMaterial({
+            fragmentShader,
+            vertexShader,
+            uniforms: {
+                color: { value: new THREE.Color(random.pick(palette)) },
+                time: { value: 0 },
+            },
         });
         // Create the mesh
         const mesh = new THREE.Mesh(geometry, material);
@@ -67,6 +103,7 @@ const sketch = ({ context, width, height }) => {
 
         // Then add the group to the scene
         scene.add(mesh);
+        meshes.push(mesh);
     }
 
     scene.add(new THREE.AmbientLight("hsl(0, 0%, 40%)"));
@@ -106,9 +143,12 @@ const sketch = ({ context, width, height }) => {
             camera.updateProjectionMatrix();
         },
         // And render events here
-        render({ playhead }) {
+        render({ playhead, time }) {
             // scene.rotation.y = eases.expoInOut(Math.sin(playhead * Math.PI));
             scene.rotation.y = easeFn(Math.sin(playhead * Math.PI));
+            meshes.forEach((mesh) => {
+                mesh.material.uniforms.time.value = time;
+            });
             // Draw scene with our camera
             renderer.render(scene, camera);
         },
